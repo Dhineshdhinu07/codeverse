@@ -15,26 +15,26 @@
 
 ## 📁 Folder Structure
 
--codeverse/
--├── frontend/ # Next.js frontend
--├── backend/ # Express backend with Prisma
+ - codeverse/
+ - ├── frontend/ # Next.js frontend
+ - ├── backend/ # Express backend with Prisma
 
 ## 🔧 Setup Instructions
 
 ### Backend
 
--cd backend
--npm install
--npx prisma generate
--npx prisma migrate dev
--npm run dev
+ - cd backend
+ - npm install
+ - npx prisma generate
+ - npx prisma migrate dev
+ - npm run dev
 **Backend runs on: http://localhost:5000**
 
 ### Frontend
 
--cd frontend
--npm install
--npm run dev
+ - cd frontend
+ - npm install
+ - npm run dev
 **Frontend runs on: http://localhost:3000**
 
 ### ✅ Features (MVP)
