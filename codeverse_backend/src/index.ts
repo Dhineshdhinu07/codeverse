@@ -1,10 +1,11 @@
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const cookieParser = require('cookie-parser');
-const { PrismaClient } = require('@prisma/client');
+import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import cookieParser from 'cookie-parser';
+import { PrismaClient } from '@prisma/client';
+import problemRoutes from './routes/problem';
 
 const prisma = new PrismaClient();
 const app = express();
@@ -16,6 +17,7 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
+app.use("/api/problems", problemRoutes);
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -24,61 +26,67 @@ if (!JWT_SECRET) {
 }
 
 // Input validation middleware
-const validateEmail = (email) => {
+const validateEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 };
 
-const validatePassword = (password) => {
+const validatePassword = (password: string): boolean => {
   return password.length >= 6;
 };
 
 // Authentication middleware
-const authenticateToken = async (req, res, next) => {
+const authenticateToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
     if (!token) {
-      return res.status(401).json({ error: 'Authentication required' });
+      res.status(401).json({ error: 'Authentication required' });
+      return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
     const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
+      where: { id: Number(decoded.userId) },
       select: { id: true, email: true }
     });
 
     if (!user) {
-      return res.status(401).json({ error: 'User not found' });
+      res.status(401).json({ error: 'User not found' });
+      return;
     }
 
-    req.user = user;
+    (req as any).user = user;
     next();
   } catch (error) {
-    return res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json({ error: 'Invalid token' });
   }
 };
 
 // Register
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
     // Input validation
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      res.status(400).json({ error: 'Email and password are required' });
+      return;
     }
 
     if (!validateEmail(email)) {
-      return res.status(400).json({ error: 'Invalid email format' });
+      res.status(400).json({ error: 'Invalid email format' });
+      return;
     }
 
     if (!validatePassword(password)) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      return;
     }
 
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      return res.status(400).json({ error: 'Email already in use' });
+      res.status(400).json({ error: 'Email already in use' });
+      return;
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -95,23 +103,26 @@ app.post('/api/register', async (req, res) => {
 });
 
 // Login
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
     // Input validation
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      res.status(400).json({ error: 'Email and password are required' });
+      return;
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
     }
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
     }
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
@@ -133,10 +144,10 @@ app.post('/api/login', async (req, res) => {
 });
 
 // Get current user
-app.get('/api/me', authenticateToken, async (req, res) => {
+app.get('/api/me', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: (req as any).user.id },
       select: { id: true, email: true, createdAt: true }
     });
     res.json(user);
@@ -147,15 +158,19 @@ app.get('/api/me', authenticateToken, async (req, res) => {
 });
 
 // Logout
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', (_req: Request, res: Response): void => {
   res.clearCookie('token').json({ message: 'Logged out successfully' });
 });
 
 // Error handling middleware
-app.use((err, req, res, next) => {
+app.use((err: any, _req: Request, res: Response, _next: NextFunction): void => {
   console.error(err.stack);
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+export default app;

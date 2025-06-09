@@ -40,7 +40,6 @@ const getMeHandler = async (req: AuthenticatedRequest, res: express.Response): P
   }
 };
 
-// @ts-expect-error - Express types are not properly handling async middleware
 router.get("/me", authenticateToken, getMeHandler);
 
 export default router;
