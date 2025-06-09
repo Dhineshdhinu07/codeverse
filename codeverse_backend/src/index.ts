@@ -1,4 +1,3 @@
-require('dotenv').config();
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import bcrypt from 'bcrypt';
@@ -6,24 +5,28 @@ import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import { PrismaClient } from '@prisma/client';
 import problemRoutes from './routes/problem';
+import runRoutes from './routes/run';
 
 const prisma = new PrismaClient();
 const app = express();
 
+console.log('Setting up middleware...');
+
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: 'http://localhost:3000',
   credentials: true
 }));
+
 app.use(express.json());
 app.use(cookieParser());
-app.use("/api/problems", problemRoutes);
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('JWT_SECRET is not set in environment variables');
-  process.exit(1);
-}
+console.log('Setting up routes...');
+app.use("/api/problems", problemRoutes);
+app.use("/api/run", runRoutes);
+
+// Temporary JWT secret for development
+const JWT_SECRET = 'your-super-secret-jwt-key';
 
 // Input validation middleware
 const validateEmail = (email: string): boolean => {
@@ -132,7 +135,7 @@ app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
     res
       .cookie('token', token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: false, // Set to true in production
         sameSite: 'lax',
         maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
       })
@@ -168,9 +171,17 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction): void => {
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
-const PORT = process.env.PORT || 5000;
-if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-}
+const PORT = 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log('Available routes:');
+  console.log('- POST /api/register');
+  console.log('- POST /api/login');
+  console.log('- GET /api/me');
+  console.log('- POST /api/logout');
+  console.log('- GET /api/problems');
+  console.log('- GET /api/problems/:id');
+  console.log('- POST /api/run');
+});
 
 export default app;

@@ -3,7 +3,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-require('dotenv').config();
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
@@ -11,20 +10,20 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const client_1 = require("@prisma/client");
 const problem_1 = __importDefault(require("./routes/problem"));
+const run_1 = __importDefault(require("./routes/run"));
 const prisma = new client_1.PrismaClient();
 const app = (0, express_1.default)();
+console.log('Setting up middleware...');
 app.use((0, cors_1.default)({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: 'http://localhost:3000',
     credentials: true
 }));
 app.use(express_1.default.json());
 app.use((0, cookie_parser_1.default)());
+console.log('Setting up routes...');
 app.use("/api/problems", problem_1.default);
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-    console.error('JWT_SECRET is not set in environment variables');
-    process.exit(1);
-}
+app.use("/api/run", run_1.default);
+const JWT_SECRET = 'your-super-secret-jwt-key';
 const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
@@ -111,7 +110,7 @@ app.post('/api/login', async (req, res) => {
         res
             .cookie('token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: false,
             sameSite: 'lax',
             maxAge: 7 * 24 * 60 * 60 * 1000
         })
@@ -142,9 +141,17 @@ app.use((err, _req, res, _next) => {
     console.error(err.stack);
     res.status(500).json({ error: 'Something went wrong!' });
 });
-const PORT = process.env.PORT || 5000;
-if (process.env.NODE_ENV !== 'test') {
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-}
+const PORT = 5000;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log('Available routes:');
+    console.log('- POST /api/register');
+    console.log('- POST /api/login');
+    console.log('- GET /api/me');
+    console.log('- POST /api/logout');
+    console.log('- GET /api/problems');
+    console.log('- GET /api/problems/:id');
+    console.log('- POST /api/run');
+});
 exports.default = app;
 //# sourceMappingURL=index.js.map
