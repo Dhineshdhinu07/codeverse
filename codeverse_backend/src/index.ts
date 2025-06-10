@@ -24,9 +24,6 @@ console.log('Setting up middleware...');
 app.use(express.json());
 app.use(cookieParser());
 
-// Routes
-app.use('/api/progress', progressRoutes);
-
 // CORS configuration
 app.use(cors({
   origin: CORS_ORIGIN,
@@ -157,6 +154,7 @@ app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
 });
 
 // Protected routes
+app.use('/api/progress', authenticateToken, progressRoutes);
 app.use("/api/problems", authenticateToken, problemRoutes);
 app.use("/api/run", authenticateToken, runRoutes);
 app.use("/api/submissions", authenticateToken, submissionRoutes);
