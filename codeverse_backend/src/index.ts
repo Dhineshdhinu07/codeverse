@@ -9,6 +9,7 @@ import runRoutes from './routes/run';
 import submissionRoutes from './routes/submission';
 import { authenticateToken } from './middleware/authMiddleware';
 import { JWT_SECRET, PORT, CORS_ORIGIN } from './config';
+import progressRoutes from './routes/progress';
 
 // Debug log to print JWT_SECRET
 console.log('JWT_SECRET in index.ts:', JWT_SECRET);
@@ -22,6 +23,9 @@ console.log('Setting up middleware...');
 // Basic middleware
 app.use(express.json());
 app.use(cookieParser());
+
+// Routes
+app.use('/api/progress', progressRoutes);
 
 // CORS configuration
 app.use(cors({
