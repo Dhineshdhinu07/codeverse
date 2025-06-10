@@ -8,12 +8,15 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String        @id @default(uuid())
+  username    String       // <-- Temporarily optional
+  email       String        @unique
+  password    String
+  createdAt   DateTime      @default(now())
+
+  submissions Submission[]
 }
+
 
 model Problem {
   id           String   @id @default(uuid())
@@ -26,4 +29,18 @@ model Problem {
   constraints  String
   starterCode  String
   createdAt    DateTime @default(now())
+  submissions  Submission[]
+}
+
+model Submission {
+  id        String   @id @default(uuid())
+  userId    String
+  problemId String
+  code      String
+  language  String
+  isCorrect Boolean
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  problem Problem @relation(fields: [problemId], references: [id])
 }

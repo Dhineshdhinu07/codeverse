@@ -11,19 +11,35 @@ const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const client_1 = require("@prisma/client");
 const problem_1 = __importDefault(require("./routes/problem"));
 const run_1 = __importDefault(require("./routes/run"));
+const submission_1 = __importDefault(require("./routes/submission"));
+const authMiddleware_1 = require("./middleware/authMiddleware");
+const config_1 = require("./config");
+console.log('JWT_SECRET in index.ts:', config_1.JWT_SECRET);
 const prisma = new client_1.PrismaClient();
+const prismaClient = prisma;
 const app = (0, express_1.default)();
 console.log('Setting up middleware...');
-app.use((0, cors_1.default)({
-    origin: 'http://localhost:3000',
-    credentials: true
-}));
 app.use(express_1.default.json());
 app.use((0, cookie_parser_1.default)());
-console.log('Setting up routes...');
-app.use("/api/problems", problem_1.default);
-app.use("/api/run", run_1.default);
-const JWT_SECRET = 'your-super-secret-jwt-key';
+app.use((0, cors_1.default)({
+    origin: config_1.CORS_ORIGIN,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    exposedHeaders: ['Set-Cookie'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+}));
+app.use((req, res, next) => {
+    console.log('Incoming request:', {
+        method: req.method,
+        url: req.url,
+        cookies: req.cookies,
+        headers: Object.assign(Object.assign({}, req.headers), { cookie: req.headers.cookie ? 'present' : 'missing', authorization: req.headers.authorization ? 'present' : 'missing' })
+    });
+    res.locals.requestTime = new Date().toISOString();
+    next();
+});
 const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
@@ -31,30 +47,7 @@ const validateEmail = (email) => {
 const validatePassword = (password) => {
     return password.length >= 6;
 };
-const authenticateToken = async (req, res, next) => {
-    var _a;
-    try {
-        const token = req.cookies.token || ((_a = req.headers.authorization) === null || _a === void 0 ? void 0 : _a.split(' ')[1]);
-        if (!token) {
-            res.status(401).json({ error: 'Authentication required' });
-            return;
-        }
-        const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
-        const user = await prisma.user.findUnique({
-            where: { id: Number(decoded.userId) },
-            select: { id: true, email: true }
-        });
-        if (!user) {
-            res.status(401).json({ error: 'User not found' });
-            return;
-        }
-        req.user = user;
-        next();
-    }
-    catch (error) {
-        res.status(401).json({ error: 'Invalid token' });
-    }
-};
+console.log('Setting up routes...');
 app.post('/api/register', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -70,13 +63,13 @@ app.post('/api/register', async (req, res) => {
             res.status(400).json({ error: 'Password must be at least 6 characters long' });
             return;
         }
-        const existingUser = await prisma.user.findUnique({ where: { email } });
+        const existingUser = await prismaClient.user.findUnique({ where: { email } });
         if (existingUser) {
             res.status(400).json({ error: 'Email already in use' });
             return;
         }
         const hashedPassword = await bcrypt_1.default.hash(password, 10);
-        const user = await prisma.user.create({
+        const user = await prismaClient.user.create({
             data: { email, password: hashedPassword },
             select: { id: true, email: true }
         });
@@ -94,7 +87,7 @@ app.post('/api/login', async (req, res) => {
             res.status(400).json({ error: 'Email and password are required' });
             return;
         }
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prismaClient.user.findUnique({ where: { email } });
         if (!user) {
             res.status(401).json({ error: 'Invalid credentials' });
             return;
@@ -104,26 +97,36 @@ app.post('/api/login', async (req, res) => {
             res.status(401).json({ error: 'Invalid credentials' });
             return;
         }
-        const token = jsonwebtoken_1.default.sign({ userId: user.id }, JWT_SECRET, {
+        console.log('Creating token with secret:', config_1.JWT_SECRET);
+        const token = jsonwebtoken_1.default.sign({ userId: user.id }, config_1.JWT_SECRET, {
             expiresIn: '7d'
         });
-        res
-            .cookie('token', token, {
+        res.cookie('token', token, {
             httpOnly: true,
-            secure: false,
+            secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
             maxAge: 7 * 24 * 60 * 60 * 1000
-        })
-            .json({ message: 'Login successful' });
+        });
+        res.json({
+            message: 'Login successful',
+            user: {
+                id: user.id,
+                email: user.email
+            },
+            token
+        });
     }
     catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
-app.get('/api/me', authenticateToken, async (req, res) => {
+app.use("/api/problems", authMiddleware_1.authenticateToken, problem_1.default);
+app.use("/api/run", authMiddleware_1.authenticateToken, run_1.default);
+app.use("/api/submissions", authMiddleware_1.authenticateToken, submission_1.default);
+app.get('/api/me', authMiddleware_1.authenticateToken, async (req, res) => {
     try {
-        const user = await prisma.user.findUnique({
+        const user = await prismaClient.user.findUnique({
             where: { id: req.user.id },
             select: { id: true, email: true, createdAt: true }
         });
@@ -135,23 +138,48 @@ app.get('/api/me', authenticateToken, async (req, res) => {
     }
 });
 app.post('/api/logout', (_req, res) => {
-    res.clearCookie('token').json({ message: 'Logged out successfully' });
+    res.clearCookie('token', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+    });
+    res.json({ message: 'Logged out successfully' });
 });
 app.use((err, _req, res, _next) => {
-    console.error(err.stack);
-    res.status(500).json({ error: 'Something went wrong!' });
+    console.error('Error:', err);
+    const statusCode = err.status || 500;
+    const errorMessage = err.message || 'Something went wrong!';
+    const errorResponse = Object.assign({ error: errorMessage }, (process.env.NODE_ENV === 'development' && { stack: err.stack }));
+    res.status(statusCode).json(errorResponse);
 });
-const PORT = 5000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log('Available routes:');
-    console.log('- POST /api/register');
-    console.log('- POST /api/login');
-    console.log('- GET /api/me');
-    console.log('- POST /api/logout');
-    console.log('- GET /api/problems');
-    console.log('- GET /api/problems/:id');
-    console.log('- POST /api/run');
+const server = app.listen(config_1.PORT, () => {
+    console.log(`Server running on port ${config_1.PORT}`);
+    console.log('Server configuration:');
+    console.log('- CORS enabled for:', config_1.CORS_ORIGIN);
+    console.log('- Credentials allowed:', true);
+    console.log('- Available routes:');
+    console.log('  - POST /api/register');
+    console.log('  - POST /api/login');
+    console.log('  - GET /api/me');
+    console.log('  - POST /api/logout');
+    console.log('  - GET /api/problems');
+    console.log('  - GET /api/problems/:id');
+    console.log('  - POST /api/run');
+    console.log('  - POST /api/submissions');
+});
+server.on('error', (error) => {
+    console.error('Server error:', error);
+    if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${config_1.PORT} is already in use. Please try a different port.`);
+    }
+});
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received. Shutting down gracefully...');
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
 });
 exports.default = app;
 //# sourceMappingURL=index.js.map

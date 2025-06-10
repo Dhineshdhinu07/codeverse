@@ -20,7 +20,7 @@ const getMeHandler = async (req: AuthenticatedRequest, res: express.Response): P
 
   try {
     const user = await prisma.user.findUnique({
-      where: { id: parseInt(userId) },
+      where: { id: userId },
       select: {
         id: true,
         email: true,

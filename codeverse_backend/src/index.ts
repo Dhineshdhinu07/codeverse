@@ -6,27 +6,50 @@ import cookieParser from 'cookie-parser';
 import { PrismaClient } from '@prisma/client';
 import problemRoutes from './routes/problem';
 import runRoutes from './routes/run';
+import submissionRoutes from './routes/submission';
+import { authenticateToken } from './middleware/authMiddleware';
+import { JWT_SECRET, PORT, CORS_ORIGIN } from './config';
+
+// Debug log to print JWT_SECRET
+console.log('JWT_SECRET in index.ts:', JWT_SECRET);
 
 const prisma = new PrismaClient();
+const prismaClient = prisma as any;
 const app = express();
 
 console.log('Setting up middleware...');
 
-// Middleware
-app.use(cors({
-  origin: 'http://localhost:3000',
-  credentials: true
-}));
-
+// Basic middleware
 app.use(express.json());
 app.use(cookieParser());
 
-console.log('Setting up routes...');
-app.use("/api/problems", problemRoutes);
-app.use("/api/run", runRoutes);
+// CORS configuration
+app.use(cors({
+  origin: CORS_ORIGIN,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  exposedHeaders: ['Set-Cookie'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+}));
 
-// Temporary JWT secret for development
-const JWT_SECRET = 'your-super-secret-jwt-key';
+// Request logging middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  console.log('Incoming request:', {
+    method: req.method,
+    url: req.url,
+    cookies: req.cookies,
+    headers: {
+      ...req.headers,
+      cookie: req.headers.cookie ? 'present' : 'missing',
+      authorization: req.headers.authorization ? 'present' : 'missing'
+    }
+  });
+  // Use res to ensure it's not marked as unused
+  res.locals.requestTime = new Date().toISOString();
+  next();
+});
 
 // Input validation middleware
 const validateEmail = (email: string): boolean => {
@@ -38,34 +61,9 @@ const validatePassword = (password: string): boolean => {
   return password.length >= 6;
 };
 
-// Authentication middleware
-const authenticateToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      res.status(401).json({ error: 'Authentication required' });
-      return;
-    }
+console.log('Setting up routes...');
 
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    const user = await prisma.user.findUnique({
-      where: { id: Number(decoded.userId) },
-      select: { id: true, email: true }
-    });
-
-    if (!user) {
-      res.status(401).json({ error: 'User not found' });
-      return;
-    }
-
-    (req as any).user = user;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-// Register
+// Public routes
 app.post('/api/register', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
@@ -86,14 +84,14 @@ app.post('/api/register', async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    const existingUser = await prismaClient.user.findUnique({ where: { email } });
     if (existingUser) {
       res.status(400).json({ error: 'Email already in use' });
       return;
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await prisma.user.create({
+    const user = await prismaClient.user.create({
       data: { email, password: hashedPassword },
       select: { id: true, email: true }
     });
@@ -105,7 +103,6 @@ app.post('/api/register', async (req: Request, res: Response): Promise<void> => 
   }
 });
 
-// Login
 app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
@@ -116,7 +113,7 @@ app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prismaClient.user.findUnique({ where: { email } });
     if (!user) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
@@ -128,28 +125,41 @@ app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    console.log('Creating token with secret:', JWT_SECRET);
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
       expiresIn: '7d'
     });
 
-    res
-      .cookie('token', token, {
-        httpOnly: true,
-        secure: false, // Set to true in production
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
-      })
-      .json({ message: 'Login successful' });
+    // Set cookie with token
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+
+    res.json({ 
+      message: 'Login successful',
+      user: {
+        id: user.id,
+        email: user.email
+      },
+      token
+    });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Get current user
+// Protected routes
+app.use("/api/problems", authenticateToken, problemRoutes);
+app.use("/api/run", authenticateToken, runRoutes);
+app.use("/api/submissions", authenticateToken, submissionRoutes);
+
 app.get('/api/me', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
-    const user = await prisma.user.findUnique({
+    const user = await prismaClient.user.findUnique({
       where: { id: (req as any).user.id },
       select: { id: true, email: true, createdAt: true }
     });
@@ -160,28 +170,58 @@ app.get('/api/me', authenticateToken, async (req: Request, res: Response): Promi
   }
 });
 
-// Logout
-app.post('/api/logout', (_req: Request, res: Response): void => {
-  res.clearCookie('token').json({ message: 'Logged out successfully' });
+app.post('/api/logout', (_req, res) => {
+  // Clear the token cookie
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+  });
+  res.json({ message: 'Logged out successfully' });
 });
 
 // Error handling middleware
-app.use((err: any, _req: Request, res: Response, _next: NextFunction): void => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('Error:', err);
+  const statusCode = err.status || 500;
+  const errorMessage = err.message || 'Something went wrong!';
+  const errorResponse = {
+    error: errorMessage,
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  };
+  res.status(statusCode).json(errorResponse);
 });
 
-const PORT = 5000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log('Available routes:');
-  console.log('- POST /api/register');
-  console.log('- POST /api/login');
-  console.log('- GET /api/me');
-  console.log('- POST /api/logout');
-  console.log('- GET /api/problems');
-  console.log('- GET /api/problems/:id');
-  console.log('- POST /api/run');
+  console.log('Server configuration:');
+  console.log('- CORS enabled for:', CORS_ORIGIN);
+  console.log('- Credentials allowed:', true);
+  console.log('- Available routes:');
+  console.log('  - POST /api/register');
+  console.log('  - POST /api/login');
+  console.log('  - GET /api/me');
+  console.log('  - POST /api/logout');
+  console.log('  - GET /api/problems');
+  console.log('  - GET /api/problems/:id');
+  console.log('  - POST /api/run');
+  console.log('  - POST /api/submissions');
+});
+
+server.on('error', (error: any) => {
+  console.error('Server error:', error);
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Please try a different port.`);
+  }
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
 
 export default app;
