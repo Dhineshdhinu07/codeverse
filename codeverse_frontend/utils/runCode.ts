@@ -1,5 +1,6 @@
 // utils/runCode.ts
 import axios from "axios";
+import api from "@/lib/api";
 
 type RunCodeParams = {
   language_id: number;
@@ -13,22 +14,8 @@ type RunCodeResult = {
 
 export async function runCode({ language_id, source_code }: RunCodeParams): Promise<RunCodeResult> {
   try {
-    const response = await fetch('http://localhost:5000/api/run', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        language_id,
-        source_code,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to run code');
-    }
-
-    return await response.json();
+    const response = await api.post("/run", { language_id, source_code });
+    return response.data;
   } catch (error) {
     console.error('Error running code:', error);
     throw error;

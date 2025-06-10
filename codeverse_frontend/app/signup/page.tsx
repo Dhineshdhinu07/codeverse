@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import axios from '@/lib/api';
+import api from '@/lib/api';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -13,7 +13,7 @@ export default function SignupPage() {
 
   const handleSignup = async () => {
     try {
-      await axios.post('/register', { email, username, password });
+      await api.post('/register', { email, username, password });
       router.push('/login');
     } catch (error: any) {
       console.error('Registration failed:', error);

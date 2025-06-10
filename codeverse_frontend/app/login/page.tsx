@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
+import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { login } = useAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,33 +18,11 @@ export default function LoginPage() {
       setError("");
       setLoading(true);
       
-      const response = await axios.post(
-        'http://localhost:5000/api/login',
-        { email, password },
-        { 
-          withCredentials: true,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      
-      if (response.data.message === 'Login successful') {
-        router.push('/dashboard');
-      }
+      await login(email, password);
+      router.push('/dashboard');
     } catch (err: any) {
       console.error('Login error:', err);
-      if (err.response) {
-        // The request was made and the server responded with a status code
-        // that falls out of the range of 2xx
-        setError(err.response.data.error || 'Failed to login. Please try again.');
-      } else if (err.request) {
-        // The request was made but no response was received
-        setError('No response from server. Please check if the server is running.');
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        setError('An error occurred. Please try again.');
-      }
+      setError(err.message || 'An error occurred during login. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -96,7 +75,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-red-500 text-sm text-center">
+            <div className="text-red-500 text-sm text-center bg-red-50 p-3 rounded-md border border-red-200">
               {error}
             </div>
           )}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import axios from "axios";
+import api from "@/lib/api";
 
 type Problem = {
   id: string;
@@ -14,7 +14,7 @@ export default function ProblemsPage() {
   const [problems, setProblems] = useState<Problem[]>([]);
 
   useEffect(() => {
-    axios.get("http://localhost:5000/api/problems")
+    api.get("/problems")
       .then(res => setProblems(res.data))
       .catch(err => console.error("Error loading problems", err));
   }, []);

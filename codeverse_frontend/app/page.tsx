@@ -1,31 +1,25 @@
-// app/page.tsx
 'use client';
-
 import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
 
-export default function HomePage() {
+export default function LandingPage() {
   const router = useRouter();
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-black text-white p-6">
-      <h1 className="text-5xl font-bold mb-4 text-blue-400 drop-shadow">Welcome to Codeverse</h1>
-      <p className="text-lg mb-8 max-w-lg text-center text-gray-300">
-        Dive into the ultimate coding battle experience. Compete, learn, and grow as a developer in a gamified arena built for the future.
-      </p>
-
-      <div className="space-x-4">
-        <button
-          className="bg-blue-500 hover:bg-blue-600 px-6 py-2 rounded text-white font-semibold"
-          onClick={() => router.push('/signup')}
+    <main className="min-h-screen bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] text-white flex items-center justify-center px-6">
+      <div className="max-w-3xl text-center space-y-6">
+        <h1 className="text-5xl md:text-6xl font-bold leading-tight drop-shadow-[0_0_0.8rem_#ffffff55]">
+          Codeverse
+        </h1>
+        <p className="text-lg md:text-xl text-gray-300 max-w-xl mx-auto">
+          A new dimension of coding: battle your friends, defeat bugs, and level up your skills in real-time.
+        </p>
+        <Button
+          onClick={() => router.push('/dashboard')}
+          className="bg-white text-black font-semibold px-6 py-3 rounded-xl hover:bg-[#8e2de2] hover:text-white transition-all duration-300 shadow-lg"
         >
-          Get Started
-        </button>
-        <button
-          className="border border-gray-400 hover:border-white px-6 py-2 rounded text-white font-semibold"
-          onClick={() => router.push('/login')}
-        >
-          Login
-        </button>
+          Enter the Arena 🚀
+        </Button>
       </div>
     </main>
   );

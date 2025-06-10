@@ -2,8 +2,9 @@
 
 import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import axios from "axios";
+import api from "@/lib/api";
 import { runCode } from "@/utils/runCode";
+import { submitCode } from "@/lib/api";
 
 type Example = {
   input: string;
@@ -34,10 +35,12 @@ export default function ProblemPage() {
   const [code, setCode] = useState("");
   const [examples, setExamples] = useState<Example[]>([]);
   const [output, setOutput] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitResult, setSubmitResult] = useState("");
 
   useEffect(() => {
     if (!id) return;
-    axios.get(`http://localhost:5000/api/problems/${id}`)
+    api.get(`/problems/${id}`)
       .then(res => {
         setProblem(res.data);
         setCode(res.data.starterCode);
@@ -63,6 +66,25 @@ export default function ProblemPage() {
       setOutput(result.stdout || "✅ No output");
     } catch (e) {
       setOutput("❌ Failed to run code.");
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!problem) return;
+    setIsSubmitting(true);
+    setSubmitResult("Submitting...");
+    try {
+      const result = await submitCode({
+        problemId: problem.id,
+        code,
+        language: "javascript", // or dynamically set based on user selection
+        isCorrect: true // or determine based on test results
+      });
+      setSubmitResult("✅ Submission successful: " + JSON.stringify(result));
+    } catch (error) {
+      setSubmitResult("❌ Submission failed: " + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -97,11 +119,24 @@ export default function ProblemPage() {
       >
         Run Code 🚀
       </button>
+      <button 
+        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition ml-2"
+        onClick={handleSubmit}
+        disabled={isSubmitting}
+      >
+        {isSubmitting ? "Submitting..." : "Submit Solution"}
+      </button>
 
       {output && (
         <div className="mt-4">
           <h3 className="font-semibold mb-2">Output:</h3>
           <pre className="bg-gray-100 p-2 rounded whitespace-pre-line">{output}</pre>
+        </div>
+      )}
+      {submitResult && (
+        <div className="mt-4">
+          <h3 className="font-semibold mb-2">Submission Result:</h3>
+          <pre className="bg-gray-100 p-2 rounded whitespace-pre-line">{submitResult}</pre>
         </div>
       )}
     </div>
