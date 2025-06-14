@@ -13,6 +13,8 @@ import { JWT_SECRET, PORT, CORS_ORIGIN } from './config';
 import progressRoutes from './routes/progress';
 import userRoutes from './routes/user';
 import authRoutes from './routes/auth';
+import { authenticateToken } from './middleware/authMiddleware';
+import battleRoutes from './routes/battle';
 
 // Debug log to print JWT_SECRET
 console.log('JWT_SECRET in index.ts:', JWT_SECRET);
@@ -85,12 +87,13 @@ const validatePassword = (password: string): boolean => {
 };
 
 // API routes
-app.use('/api/problems', problemRoutes);
-app.use('/api/runs', runRoutes);
-app.use('/api/submissions', submissionRoutes);
-app.use('/api/users', userRoutes);
+app.use('/api/problems', authenticateToken, problemRoutes);
+app.use('/api/runs', authenticateToken, runRoutes);
+app.use('/api/submissions', authenticateToken, submissionRoutes);
+app.use('/api/users', authenticateToken, userRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api/progress', progressRoutes);
+app.use('/api/progress', authenticateToken, progressRoutes);
+app.use('/api/battle', authenticateToken, battleRoutes);
 
 // Add a test route to verify the server is working
 app.get('/api/test', (_req, res) => {

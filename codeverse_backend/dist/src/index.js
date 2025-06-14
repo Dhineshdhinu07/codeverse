@@ -18,6 +18,8 @@ const config_1 = require("./config");
 const progress_1 = __importDefault(require("./routes/progress"));
 const user_1 = __importDefault(require("./routes/user"));
 const auth_1 = __importDefault(require("./routes/auth"));
+const authMiddleware_1 = require("./middleware/authMiddleware");
+const battle_1 = __importDefault(require("./routes/battle"));
 console.log('JWT_SECRET in index.ts:', config_1.JWT_SECRET);
 const prisma = new client_1.PrismaClient();
 const app = (0, express_1.default)();
@@ -69,12 +71,13 @@ const validateEmail = (email) => {
 const validatePassword = (password) => {
     return password.length >= 6;
 };
-app.use('/api/problems', problem_1.default);
-app.use('/api/runs', run_1.default);
-app.use('/api/submissions', submission_1.default);
-app.use('/api/users', user_1.default);
+app.use('/api/problems', authMiddleware_1.authenticateToken, problem_1.default);
+app.use('/api/runs', authMiddleware_1.authenticateToken, run_1.default);
+app.use('/api/submissions', authMiddleware_1.authenticateToken, submission_1.default);
+app.use('/api/users', authMiddleware_1.authenticateToken, user_1.default);
 app.use('/api/auth', auth_1.default);
-app.use('/api/progress', progress_1.default);
+app.use('/api/progress', authMiddleware_1.authenticateToken, progress_1.default);
+app.use('/api/battle', authMiddleware_1.authenticateToken, battle_1.default);
 app.get('/api/test', (_req, res) => {
     res.json({ message: 'API is working' });
 });
