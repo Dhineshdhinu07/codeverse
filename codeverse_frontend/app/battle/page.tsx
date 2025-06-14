@@ -1,181 +1,272 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { Progress } from "@/components/ui/progress";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import connectSocket, { disconnectSocket } from "@/lib/socket";
+import ProblemDisplay from "@/components/ProblemDisplay";
+import BattleClient from "@/lib/BattleClient";
+import api from "@/lib/api";
+import { compareOutputs } from "@/utils/compareOutputs";
+import { validateTestcases } from "@/utils/validateTestcases";
 
-export default function BattlePage() {
+interface Problem {
+  id: string;
+  title: string;
+  description: string;
+  examples: { input: string; output: string }[];
+  constraints: string[];
+}
+
+const BattlePage = () => {
+  const { user, loading } = useAuth();
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  const [timeLeft, setTimeLeft] = useState(300); // 5 min battle timer
+  const [problem, setProblem] = useState<Problem | null>(null);
   const [code, setCode] = useState("");
-  const [xp, setXp] = useState(0);
-  const [level, setLevel] = useState(1);
-  const [problemId] = useState("battle-problem-1");
-  const [language] = useState("javascript");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionResult, setSubmissionResult] = useState<{
+    isCorrect: boolean;
+    message: string;
+    details?: any;
+  } | null>(null);
+  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes
   const [opponentSubmitted, setOpponentSubmitted] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [roomId] = useState("test-room-123"); // For now hardcoded
+  const [battleStatus, setBattleStatus] = useState<"waiting" | "ready" | "ended">("waiting");
+  const [error, setError] = useState<string | null>(null);
+  const battleClientRef = useRef<BattleClient | null>(null);
+  const roomId = "battle_room_1"; // TODO: Get from URL or state
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      console.log("No user found, redirecting to login");
-      router.replace("/login");
-      return;
+  const handleAuthError = async () => {
+    try {
+      const response = await fetch("http://localhost:5000/api/auth/refresh", {
+        method: "POST",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        router.push("/login");
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Failed to refresh token:", error);
+      router.push("/login");
+      return false;
     }
+  };
 
-    const socket = connectSocket();
-    socket.emit("join:room", roomId);
-    console.log("Joined room:", roomId);
-
-    // Socket event listeners
-    const handleConnect = () => {
-      console.log("✅ Connected to socket server:", socket.id);
-      setIsConnected(true);
-    };
-
-    const handleDisconnect = () => {
-      console.log("🔴 Disconnected from socket server");
-      setIsConnected(false);
-    };
-
-    const handleOpponentSubmitted = (data: any) => {
-      console.log("🔥 Opponent submitted:", data);
-      setOpponentSubmitted(true);
-    };
-
-    socket.on("connect", handleConnect);
-    socket.on("disconnect", handleDisconnect);
-    socket.on("opponent:submitted", handleOpponentSubmitted);
-
-    // Cleanup
-    return () => {
-      socket.off("connect", handleConnect);
-      socket.off("disconnect", handleDisconnect);
-      socket.off("opponent:submitted", handleOpponentSubmitted);
-      disconnectSocket();
-    };
-  }, [user, authLoading, router, roomId]);
-
-  // Timer countdown
   useEffect(() => {
-    if (timeLeft <= 0) return;
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [timeLeft]);
+    if (loading) return; // Wait for auth to load
 
-  const handleSubmit = () => {
     if (!user) {
-      console.log("No user found during submit, redirecting to login");
-      router.replace("/login");
+      router.push("/login");
       return;
     }
-    
-    const socket = connectSocket();
-    if (!socket.connected) {
-      console.error("Cannot submit: Socket not connected");
-      return;
+
+    // Initialize battle client
+    battleClientRef.current = new BattleClient(roomId);
+
+    // Set up battle client event handlers
+    battleClientRef.current.onUpdate((data) => {
+      console.log("Battle room updated:", data);
+      if (data.players.length === 2) {
+        setBattleStatus("ready");
+      }
+    });
+
+    battleClientRef.current.onOpponentSubmit((data) => {
+      console.log("Opponent submitted:", data);
+      setOpponentSubmitted(true);
+    });
+
+    // Fetch random problem
+    const fetchProblem = async () => {
+      try {
+        setError(null);
+        const { data } = await api.get('/battle/random');
+        setProblem(data);
+      } catch (err: any) {
+        console.error("Error fetching problem:", err);
+        setError(err.message || "Failed to fetch problem");
+      }
+    };
+
+    fetchProblem();
+
+    // Timer countdown
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setBattleStatus("ended");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      battleClientRef.current?.disconnect();
+    };
+  }, [user, loading, router, roomId]);
+
+  const handleSubmit = async () => {
+    if (!problem || !code.trim() || !user) return;
+
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      console.log("Submitting code for problem:", problem.id);
+      console.log("Code:", code);
+
+      // Emit battle submission
+      battleClientRef.current?.submit({
+        problemId: problem.id,
+        code,
+        language: "javascript",
+        roomId: roomId,
+        userId: user.id
+      });
+
+      // Listen for results
+      battleClientRef.current?.onResult((result) => {
+        if (result.winnerId === user.id) {
+          setSubmissionResult({
+            isCorrect: true,
+            message: "🎉 You won!",
+            details: result.results
+          });
+        } else {
+          setSubmissionResult({
+            isCorrect: false,
+            message: "😢 You lost...",
+            details: result.results
+          });
+        }
+      });
+
+      battleClientRef.current?.onFail((result) => {
+        setSubmissionResult({
+          isCorrect: false,
+          message: "❌ Your submission failed.",
+          details: result.results
+        });
+      });
+
+      battleClientRef.current?.onError((error) => {
+        setError(error.message);
+        setSubmissionResult({
+          isCorrect: false,
+          message: error.message
+        });
+      });
+
+    } catch (err: any) {
+      console.error("Error submitting solution:", err);
+      const errorMessage = err.response?.data?.message || err.message || "Failed to submit solution";
+      setError(errorMessage);
+      setSubmissionResult({
+        isCorrect: false,
+        message: errorMessage
+      });
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    // Emit submission event
-    socket.emit("code:submit", {
-      roomId,
-      userId: user.id,
-      code,
-      problemId,
-      language,
-    });
-
-    calculateXp(true); // Simulating correct submission
   };
 
-  const calculateXp = (isCorrect: boolean) => {
-    const earned = isCorrect ? 20 : 5;
-    setXp((prev) => {
-      const total = prev + earned;
-      const newLevel = Math.floor(total / 100) + 1;
-      setLevel(newLevel);
-      return total;
-    });
-  };
-
-  if (authLoading) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] text-white p-8 flex items-center justify-center">
-        <div className="text-2xl">Loading...</div>
+      <div className="min-h-screen bg-[#0a0a0a] text-white p-6 flex items-center justify-center">
+        <div className="text-xl">Loading...</div>
       </div>
     );
   }
 
-  if (!user) {
-    return null; // Will redirect in useEffect
-  }
+  if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] text-white p-8">
-      <h1 className="text-4xl font-bold text-center mb-4">⚔️ Battle Mode</h1>
-      <div className="flex flex-col md:flex-row gap-6 justify-between items-start">
-        <div className="w-full md:w-1/2">
-          <textarea
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="Write your code here..."
-            className="w-full h-72 p-4 bg-[#1a1a2e] text-white rounded-lg shadow-lg"
-          ></textarea>
-          <button
-            onClick={handleSubmit}
-            disabled={!isConnected}
-            className={`mt-4 px-6 py-2 rounded-lg text-white shadow-md ${
-              isConnected 
-                ? 'bg-blue-600 hover:bg-blue-700' 
-                : 'bg-gray-500 cursor-not-allowed'
-            }`}
-          >
-            {isConnected ? 'Submit Code' : 'Connecting...'}
-          </button>
+    <div className="min-h-screen bg-[#0a0a0a] text-white p-6">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold">Battle Mode</h1>
+          <div className="flex items-center gap-4">
+            <div className={`px-3 py-1 rounded-full ${
+              battleStatus === "ready" ? 'bg-green-500' : 
+              battleStatus === "waiting" ? 'bg-yellow-500' : 'bg-red-500'
+            }`}>
+              {battleStatus === "ready" ? 'Battle Ready' : 
+               battleStatus === "waiting" ? 'Waiting for Opponent' : 'Battle Ended'}
+            </div>
+            <div className="text-xl font-mono">
+              Time: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+            </div>
+          </div>
         </div>
 
-        <div className="w-full md:w-1/2 space-y-4">
-          <div className="bg-[#1a1a2e] p-4 rounded-lg shadow-lg">
-            <h2 className="text-lg font-semibold">⏱️ Time Left</h2>
-            <p className="text-2xl">{Math.floor(timeLeft / 60)}:{("0" + (timeLeft % 60)).slice(-2)}</p>
+        {error && (
+          <div className="mb-6 p-4 bg-red-900 rounded-lg">
+            <p className="text-white">{error}</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
+            {problem ? (
+              <ProblemDisplay problem={problem} />
+            ) : (
+              <div className="p-6 rounded-lg bg-[#1a1a1a]">
+                <p>Loading problem...</p>
+              </div>
+            )}
           </div>
 
-          <div className="bg-[#1a1a2e] p-4 rounded-lg shadow-lg">
-            <h2 className="text-lg font-semibold">🧑 Opponent Status</h2>
-            <p>{opponentSubmitted ? "✅ Opponent has submitted!" : "Waiting..."}</p>
-          </div>
+          <div className="space-y-4">
+            <div className="bg-[#1a1a1a] rounded-lg p-4">
+              <textarea
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                className="w-full h-64 bg-[#2a2a2a] text-white p-4 rounded font-mono"
+                placeholder="Write your solution here..."
+                disabled={battleStatus !== "ready"}
+              />
+            </div>
 
-          <div className="bg-[#1a1a2e] p-4 rounded-lg shadow-lg">
-            <h2 className="text-lg font-semibold">🎮 XP / Level</h2>
-            <p>XP: {xp} / 100</p>
-            <Progress value={xp % 100} />
-            <p>Level: {level}</p>
-          </div>
+            <div className="flex justify-between items-center">
+              <button
+                onClick={handleSubmit}
+                disabled={isSubmitting || !code.trim() || battleStatus !== "ready"}
+                className={`px-6 py-2 rounded ${
+                  isSubmitting || !code.trim() || battleStatus !== "ready"
+                    ? 'bg-gray-600 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {isSubmitting ? 'Submitting...' : 'Submit Solution'}
+              </button>
 
-          <div className="bg-[#1a1a2e] p-4 rounded-lg shadow-lg">
-            <h2 className="text-lg font-semibold">🔌 Connection Status</h2>
-            <p className={isConnected ? "text-green-400" : "text-red-400"}>
-              {isConnected ? "✅ Connected" : "❌ Disconnected"}
-            </p>
+              {opponentSubmitted && (
+                <div className="text-yellow-400">
+                  Opponent has submitted their solution!
+                </div>
+              )}
+            </div>
+
+            {submissionResult && (
+              <div className={`p-4 rounded ${
+                submissionResult.isCorrect ? 'bg-green-900' : 'bg-red-900'
+              }`}>
+                {submissionResult.message}
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      {opponentSubmitted && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="mt-8 text-center text-green-400 text-xl"
-        >
-          Opponent has finished. Can you beat them?
-        </motion.div>
-      )}
     </div>
   );
-}
+};
+
+export default BattlePage;

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
 
 export default function LoginPage() {
@@ -18,14 +18,22 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
+    if (!email || !password) {
+      setError('Please enter both email and password');
+      setLoading(false);
+      return;
+    }
+
     try {
-      console.log('Login form submitted:', { email });
+      console.log('Attempting login for:', email);
       await login(email, password);
       console.log('Login successful, redirecting...');
       router.push('/dashboard');
     } catch (error: any) {
       console.error('Login error:', error);
-      setError(error.message || 'An error occurred during login. Please try again.');
+
+      const errorMessage = error?.message || 'An error occurred during login. Please try again.';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

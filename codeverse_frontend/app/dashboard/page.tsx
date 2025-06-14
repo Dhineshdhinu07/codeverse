@@ -2,7 +2,7 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import ProgressCard from "@/components/ProgressCard";
 
 export default function Dashboard() {
