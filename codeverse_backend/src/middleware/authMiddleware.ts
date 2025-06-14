@@ -8,10 +8,16 @@ const prisma = new PrismaClient();
 
 interface AuthenticatedRequest extends Request {
   user?: { id: string; email: string; username: string };
+  userId?: string;
 }
 
 // Debug log to print JWT_SECRET
 console.log('JWT_SECRET in authMiddleware.ts:', JWT_SECRET);
+
+export const verifyToken = (token: string): { id: string } => {
+  const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+  return { id: decoded.userId };
+};
 
 export const authenticateToken = async (
   req: AuthenticatedRequest,
@@ -59,12 +65,18 @@ export const authenticateToken = async (
 
     try {
       // Verify and decode the token
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-      console.log('Token decoded:', { userId: decoded.userId });
+      const decoded = verifyToken(token);
+      console.log('Token decoded:', { userId: decoded.id });
       
+      if (!decoded.id) {
+        console.log('No user ID in decoded token');
+        res.status(401).json({ error: 'Invalid token format' });
+        return;
+      }
+
       // Find the user
       const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
+        where: { id: decoded.id },
         select: { id: true, email: true, username: true }
       });
       
@@ -78,6 +90,7 @@ export const authenticateToken = async (
       
       // Attach user to request and proceed
       req.user = user;
+      req.userId = user.id;
       next();
     } catch (error) {
       console.error('JWT verification failed:', error instanceof Error ? error.message : 'Unknown error');

@@ -28,7 +28,7 @@ model Problem {
   inputFormat  String
   outputFormat String
   examples     Json
-  constraints  String
+  constraints  Json
   starterCode  String
   testCases    Json?
   createdAt    DateTime @default(now())

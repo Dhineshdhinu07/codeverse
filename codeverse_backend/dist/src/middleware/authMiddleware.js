@@ -3,12 +3,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.authenticateToken = void 0;
+exports.authenticateToken = exports.verifyToken = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const client_1 = require("@prisma/client");
 const config_1 = require("../config");
 const prisma = new client_1.PrismaClient();
 console.log('JWT_SECRET in authMiddleware.ts:', config_1.JWT_SECRET);
+const verifyToken = (token) => {
+    const decoded = jsonwebtoken_1.default.verify(token, config_1.JWT_SECRET);
+    return { id: decoded.userId };
+};
+exports.verifyToken = verifyToken;
 const authenticateToken = async (req, res, next) => {
     var _a, _b;
     try {
@@ -42,10 +47,10 @@ const authenticateToken = async (req, res, next) => {
             return;
         }
         try {
-            const decoded = jsonwebtoken_1.default.verify(token, config_1.JWT_SECRET);
-            console.log('Token decoded:', { userId: decoded.userId });
+            const decoded = (0, exports.verifyToken)(token);
+            console.log('Token decoded:', { userId: decoded.id });
             const user = await prisma.user.findUnique({
-                where: { id: decoded.userId },
+                where: { id: decoded.id },
                 select: { id: true, email: true, username: true }
             });
             if (!user) {

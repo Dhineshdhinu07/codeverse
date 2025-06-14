@@ -5,7 +5,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
-const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const problem_1 = __importDefault(require("./routes/problem"));
 const run_1 = __importDefault(require("./routes/run"));
@@ -17,6 +16,7 @@ const auth_1 = __importDefault(require("./routes/auth"));
 const user_1 = __importDefault(require("./routes/user"));
 const progress_1 = __importDefault(require("./routes/progress"));
 const battle_1 = __importDefault(require("./routes/battle"));
+const authMiddleware_2 = require("./middleware/authMiddleware");
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)({
     origin: "http://localhost:3000",
@@ -35,41 +35,50 @@ const server = http_1.default.createServer(app);
 const io = new socket_io_1.Server(server, {
     cors: {
         origin: "http://localhost:3000",
-        credentials: true,
-    },
+        methods: ["GET", "POST"],
+        credentials: true
+    }
 });
+const battleRooms = {};
 io.use((socket, next) => {
-    var _a;
-    const token = socket.handshake.auth.token || ((_a = socket.handshake.headers.cookie) === null || _a === void 0 ? void 0 : _a.split('token=')[1]);
+    const token = socket.handshake.auth.token;
     if (!token) {
-        return next(new Error('Authentication error'));
+        return next(new Error("Authentication error"));
     }
     try {
-        const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-        socket.data.user = decoded;
+        const decoded = (0, authMiddleware_2.verifyToken)(token);
+        socket.data.userId = decoded.id;
         next();
     }
     catch (err) {
-        next(new Error('Authentication error'));
+        next(new Error("Authentication error"));
     }
 });
 io.on("connection", (socket) => {
-    console.log("🟢 User connected:", socket.id);
-    socket.on("join:room", (roomId) => {
+    console.log("✅ Client connected:", socket.id);
+    socket.on("battle:join", ({ roomId }) => {
         socket.join(roomId);
-        console.log(`User ${socket.id} joined room: ${roomId}`);
-    });
-    socket.on("code:submit", (data) => {
-        console.log("Code submitted:", data);
-        const { roomId, userId, problemId } = data;
-        socket.to(roomId).emit("opponent:submitted", {
-            userId,
-            problemId,
-            timestamp: new Date().toISOString()
+        if (!battleRooms[roomId]) {
+            battleRooms[roomId] = { players: [] };
+        }
+        battleRooms[roomId].players.push(socket.id);
+        io.to(roomId).emit("battle:update", {
+            players: battleRooms[roomId].players,
         });
+        console.log("Room", roomId, "Players", battleRooms[roomId].players);
+    });
+    socket.on("battle:submit", ({ roomId, result }) => {
+        io.to(roomId).emit("battle:opponentSubmit", { result, from: socket.id });
     });
     socket.on("disconnect", () => {
-        console.log("🔴 User disconnected:", socket.id);
+        console.log("🔴 Client disconnected:", socket.id);
+        Object.keys(battleRooms).forEach(roomId => {
+            const room = battleRooms[roomId];
+            room.players = room.players.filter(id => id !== socket.id);
+            if (room.players.length === 0) {
+                delete battleRooms[roomId];
+            }
+        });
     });
 });
 app.use((err, _req, res, _next) => {
@@ -81,6 +90,6 @@ app.use((err, _req, res, _next) => {
 });
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-    console.log(`✅ Server running on port ${PORT}`);
+    console.log(`🚀 Server running on port ${PORT}`);
 });
 //# sourceMappingURL=server.js.map
