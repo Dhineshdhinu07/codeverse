@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Progress } from "@/components/ui/progress";
-import { useBattleSocket } from "@/hooks/useBattleSocket";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
+import connectSocket, { disconnectSocket } from "@/lib/socket";
 
 export default function BattlePage() {
   const router = useRouter();
@@ -14,22 +14,51 @@ export default function BattlePage() {
   const [code, setCode] = useState("");
   const [xp, setXp] = useState(0);
   const [level, setLevel] = useState(1);
-  const [problemId] = useState("battle-problem-1"); // You might want to get this from props or context
-  const [language] = useState("javascript"); // You might want to get this from props or context
-
-  const { 
-    opponentSubmitted, 
-    notifySubmission, 
-    isConnected,
-    isAuthenticated,
-    isLoading: socketLoading 
-  } = useBattleSocket(problemId);
+  const [problemId] = useState("battle-problem-1");
+  const [language] = useState("javascript");
+  const [opponentSubmitted, setOpponentSubmitted] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [roomId] = useState("test-room-123"); // For now hardcoded
 
   useEffect(() => {
     if (!authLoading && !user) {
-      router.push("/login");
+      console.log("No user found, redirecting to login");
+      router.replace("/login");
+      return;
     }
-  }, [user, authLoading, router]);
+
+    const socket = connectSocket();
+    socket.emit("join:room", roomId);
+    console.log("Joined room:", roomId);
+
+    // Socket event listeners
+    const handleConnect = () => {
+      console.log("✅ Connected to socket server:", socket.id);
+      setIsConnected(true);
+    };
+
+    const handleDisconnect = () => {
+      console.log("🔴 Disconnected from socket server");
+      setIsConnected(false);
+    };
+
+    const handleOpponentSubmitted = (data: any) => {
+      console.log("🔥 Opponent submitted:", data);
+      setOpponentSubmitted(true);
+    };
+
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+    socket.on("opponent:submitted", handleOpponentSubmitted);
+
+    // Cleanup
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("opponent:submitted", handleOpponentSubmitted);
+      disconnectSocket();
+    };
+  }, [user, authLoading, router, roomId]);
 
   // Timer countdown
   useEffect(() => {
@@ -42,16 +71,26 @@ export default function BattlePage() {
 
   const handleSubmit = () => {
     if (!user) {
-      router.push("/login");
+      console.log("No user found during submit, redirecting to login");
+      router.replace("/login");
       return;
     }
     
-    if (!isConnected) {
+    const socket = connectSocket();
+    if (!socket.connected) {
       console.error("Cannot submit: Socket not connected");
       return;
     }
     
-    notifySubmission();
+    // Emit submission event
+    socket.emit("code:submit", {
+      roomId,
+      userId: user.id,
+      code,
+      problemId,
+      language,
+    });
+
     calculateXp(true); // Simulating correct submission
   };
 
@@ -65,13 +104,15 @@ export default function BattlePage() {
     });
   };
 
-  if (authLoading || socketLoading) {
-    return <div className="min-h-screen bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] text-white p-8 flex items-center justify-center">
-      <div className="text-2xl">Loading...</div>
-    </div>;
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] text-white p-8 flex items-center justify-center">
+        <div className="text-2xl">Loading...</div>
+      </div>
+    );
   }
 
-  if (!isAuthenticated) {
+  if (!user) {
     return null; // Will redirect in useEffect
   }
 
