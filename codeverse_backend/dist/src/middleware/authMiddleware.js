@@ -10,7 +10,7 @@ const config_1 = require("../config");
 const prisma = new client_1.PrismaClient();
 console.log('JWT_SECRET in authMiddleware.ts:', config_1.JWT_SECRET);
 const authenticateToken = async (req, res, next) => {
-    var _a;
+    var _a, _b;
     try {
         console.log('Auth request received:', {
             method: req.method,
@@ -20,11 +20,11 @@ const authenticateToken = async (req, res, next) => {
             hasCookieString: !!req.headers.cookie
         });
         let token;
-        if (req.cookies.token) {
+        if ((_a = req.cookies) === null || _a === void 0 ? void 0 : _a.token) {
             token = req.cookies.token;
             console.log('Token found in cookie');
         }
-        else if ((_a = req.headers.authorization) === null || _a === void 0 ? void 0 : _a.startsWith('Bearer ')) {
+        else if ((_b = req.headers.authorization) === null || _b === void 0 ? void 0 : _b.startsWith('Bearer ')) {
             token = req.headers.authorization.substring(7);
             console.log('Token found in Authorization header');
         }
@@ -43,6 +43,7 @@ const authenticateToken = async (req, res, next) => {
         }
         try {
             const decoded = jsonwebtoken_1.default.verify(token, config_1.JWT_SECRET);
+            console.log('Token decoded:', { userId: decoded.userId });
             const user = await prisma.user.findUnique({
                 where: { id: decoded.userId },
                 select: { id: true, email: true, username: true }
@@ -52,7 +53,8 @@ const authenticateToken = async (req, res, next) => {
                 res.status(401).json({ error: 'User not found' });
                 return;
             }
-            req.userId = user.id;
+            console.log('User found:', { id: user.id, email: user.email });
+            req.user = user;
             next();
         }
         catch (error) {

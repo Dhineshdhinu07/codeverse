@@ -44,8 +44,11 @@ app.use((0, cors_1.default)({
     origin: config_1.CORS_ORIGIN,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
+    exposedHeaders: ['Set-Cookie'],
+    maxAge: 86400
 }));
+app.options('*', (0, cors_1.default)());
 app.use(express_1.default.json());
 app.use((0, cookie_parser_1.default)());
 app.use((req, res, next) => {
@@ -53,7 +56,8 @@ app.use((req, res, next) => {
         method: req.method,
         url: req.url,
         cookies: req.cookies,
-        headers: Object.assign(Object.assign({}, req.headers), { cookie: req.headers.cookie ? 'present' : 'missing', authorization: req.headers.authorization ? 'present' : 'missing' })
+        headers: Object.assign(Object.assign({}, req.headers), { cookie: req.headers.cookie ? 'present' : 'missing', authorization: req.headers.authorization ? 'present' : 'missing' }),
+        body: req.method !== 'GET' ? req.body : undefined
     });
     res.locals.requestTime = new Date().toISOString();
     next();
@@ -160,11 +164,18 @@ app.post('/api/register', async (req, res) => {
             },
             select: { id: true, email: true, username: true }
         });
-        res.status(201).json({ message: 'User registered successfully', user });
+        const token = jsonwebtoken_1.default.sign({ userId: user.id }, config_1.JWT_SECRET, { expiresIn: '24h' });
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 24 * 60 * 60 * 1000
+        });
+        res.status(201).json({ user, token });
     }
     catch (error) {
         console.error('Registration error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error creating user' });
     }
 });
 app.post('/api/login', async (req, res) => {
@@ -176,47 +187,64 @@ app.post('/api/login', async (req, res) => {
         }
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) {
-            res.status(401).json({ error: 'Invalid credentials' });
+            res.status(401).json({ error: 'Invalid email or password' });
             return;
         }
-        const valid = await bcrypt_1.default.compare(password, user.password);
-        if (!valid) {
-            res.status(401).json({ error: 'Invalid credentials' });
+        const validPassword = await bcrypt_1.default.compare(password, user.password);
+        if (!validPassword) {
+            res.status(401).json({ error: 'Invalid email or password' });
             return;
         }
-        const token = jsonwebtoken_1.default.sign({ userId: user.id }, config_1.JWT_SECRET, {
-            expiresIn: '7d'
-        });
+        const token = jsonwebtoken_1.default.sign({ userId: user.id }, config_1.JWT_SECRET, { expiresIn: '24h' });
         res.cookie('token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: 7 * 24 * 60 * 60 * 1000
+            maxAge: 24 * 60 * 60 * 1000
         });
-        res.json({ message: 'Login successful', user: { id: user.id, email: user.email } });
+        res.json({
+            user: {
+                id: user.id,
+                email: user.email,
+                username: user.username
+            },
+            token
+        });
     }
     catch (error) {
         console.error('Login error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error during login' });
     }
+});
+app.post('/api/logout', (_req, res) => {
+    res.clearCookie('token');
+    res.json({ message: 'Logged out successfully' });
+});
+app.use((err, req, res, _next) => {
+    console.error('Error occurred:', {
+        error: err.message,
+        stack: err.stack,
+        url: req.url,
+        method: req.method,
+        headers: req.headers
+    });
+    if (err.name === 'UnauthorizedError') {
+        res.status(401).json({ error: 'Invalid token' });
+        return;
+    }
+    if (err.name === 'ValidationError') {
+        res.status(400).json({ error: err.message });
+        return;
+    }
+    res.status(500).json({ error: 'Internal server error' });
+});
+app.use((req, res) => {
+    console.log('404 Not Found:', req.url);
+    res.status(404).json({ error: 'Not found' });
 });
 const port = config_1.PORT || 5000;
 httpServer.listen(port, () => {
     console.log(`Server running on port ${port}`);
-    console.log('Environment:', {
-        NODE_ENV: process.env.NODE_ENV,
-        PORT: port,
-        CORS_ORIGIN: config_1.CORS_ORIGIN
-    });
-    console.log('Server configuration:', {
-        cors: {
-            origin: config_1.CORS_ORIGIN,
-            credentials: true
-        },
-        socket: {
-            transports: ['websocket', 'polling'],
-            path: '/socket.io/'
-        }
-    });
+    console.log(`CORS origin: ${config_1.CORS_ORIGIN}`);
 });
 //# sourceMappingURL=index.js.map

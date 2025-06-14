@@ -15,8 +15,10 @@ model User {
   createdAt   DateTime      @default(now())
 
   submissions Submission[]
+  battlesAsUser1 Battle[]   @relation("User1Battles")
+  battlesAsUser2 Battle[]   @relation("User2Battles")
+  battlesWon    Battle[]   @relation("BattleWinner")
 }
-
 
 model Problem {
   id           String   @id @default(uuid())
@@ -28,8 +30,10 @@ model Problem {
   examples     Json
   constraints  String
   starterCode  String
+  testCases    Json?
   createdAt    DateTime @default(now())
   submissions  Submission[]
+  battles      Battle[]
 }
 
 model Submission {
@@ -43,4 +47,20 @@ model Submission {
 
   user    User    @relation(fields: [userId], references: [id])
   problem Problem @relation(fields: [problemId], references: [id])
+}
+
+model Battle {
+  id        String   @id @default(uuid())
+  user1Id   String
+  user2Id   String
+  problemId String
+  status    String   // ONGOING, COMPLETED, CANCELLED
+  winnerId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user1    User    @relation("User1Battles", fields: [user1Id], references: [id])
+  user2    User    @relation("User2Battles", fields: [user2Id], references: [id])
+  problem  Problem @relation(fields: [problemId], references: [id])
+  winner   User?   @relation("BattleWinner", fields: [winnerId], references: [id])
 }

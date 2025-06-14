@@ -32,7 +32,8 @@ router.get("/me", authMiddleware_1.authenticateToken, async (req, res) => {
     try {
         const userId = req.userId;
         if (!userId) {
-            return res.status(401).json({ message: "Unauthorized" });
+            res.status(401).json({ message: "Unauthorized" });
+            return;
         }
         const user = await prisma.user.findUnique({
             where: { id: userId },
@@ -44,13 +45,16 @@ router.get("/me", authMiddleware_1.authenticateToken, async (req, res) => {
             },
         });
         if (!user) {
-            return res.status(404).json({ message: "User not found" });
+            res.status(404).json({ message: "User not found" });
+            return;
         }
         res.json(user);
+        return;
     }
     catch (error) {
         console.error("Error fetching user:", error);
         res.status(500).json({ message: "Internal server error" });
+        return;
     }
 });
 exports.default = router;
