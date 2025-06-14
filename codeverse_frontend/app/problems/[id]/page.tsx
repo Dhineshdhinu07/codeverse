@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { runCode } from "@/utils/runCode";
 import { submitCode } from "@/lib/api";
+import SubmitSuccessAnimation from '@/components/SubmitSuccessAnimation';
 
 type Example = {
   input: string;
@@ -37,6 +38,7 @@ export default function ProblemPage() {
   const [output, setOutput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -81,6 +83,8 @@ export default function ProblemPage() {
         isCorrect: true // or determine based on test results
       });
       setSubmitResult("✅ Submission successful: " + JSON.stringify(result));
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2000);
     } catch (error) {
       setSubmitResult("❌ Submission failed: " + (error instanceof Error ? error.message : String(error)));
     } finally {
@@ -139,6 +143,7 @@ export default function ProblemPage() {
           <pre className="bg-gray-100 p-2 rounded whitespace-pre-line">{submitResult}</pre>
         </div>
       )}
+      {showSuccess && <SubmitSuccessAnimation />}
     </div>
   );
 }

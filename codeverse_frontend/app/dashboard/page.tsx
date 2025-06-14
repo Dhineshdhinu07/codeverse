@@ -3,6 +3,7 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
+import ProgressCard from "@/components/ProgressCard";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -19,21 +20,7 @@ export default function Dashboard() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Progress Card */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Your Progress</h2>
-              <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <span className="text-sm font-medium text-gray-700">Completed Challenges</span>
-                    <span className="text-sm font-medium text-gray-700">0/10</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-blue-600 h-2 rounded-full" style={{ width: '0%' }}></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
+            <ProgressCard />
             {/* Recent Activity Card */}
             <div className="bg-white rounded-lg shadow-sm p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Recent Activity</h2>

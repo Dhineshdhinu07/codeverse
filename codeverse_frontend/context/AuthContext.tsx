@@ -2,12 +2,13 @@
 
 // context/AuthContext.tsx
 import { createContext, useEffect, useState, useContext, ReactNode } from "react";
-import api from "@/lib/api";
+import api, { checkServerHealth } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 interface User {
   id: string;
   email: string;
+  username: string;
   createdAt: string;
 }
 
@@ -40,18 +41,41 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const fetchUser = async () => {
     try {
-      console.log("Fetching user data...");
-      const res = await api.get("/me");
-      console.log("User data received:", res.data);
+      // Check if we have a token in cookies before making the request
+      const hasToken = document.cookie.includes('token=');
+      if (!hasToken) {
+        console.log('No token found in cookies, skipping user fetch');
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      console.log('Fetching user data...');
+      const res = await api.get("/api/users/me");
+      console.log('User data response:', res.data);
+      
       if (res.data) {
         setUser(res.data);
       } else {
         setUser(null);
       }
-    } catch (error) {
-      console.error("Auth check failed:", error);
+    } catch (error: any) {
+      console.error('Error fetching user:', error.message);
+      
+      // Handle specific error cases
+      if (error.message.includes('HTML response')) {
+        console.error('Server returned HTML instead of JSON. Please check the API endpoint.');
+      } else if (error.message.includes('Authentication failed') || 
+                 error.message.includes('Unauthorized') ||
+                 error.message.includes('Token expired') ||
+                 error.message.includes('Invalid token')) {
+        // Clear any existing auth state
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('user');
+        }
+        setUser(null);
+      }
       // Don't set user to null immediately on first fetch
-      // This prevents flashing of login screen
       if (user !== null) {
         setUser(null);
       }
@@ -64,60 +88,104 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   useEffect(() => {
     let retryCount = 0;
     const maxRetries = 3;
+    let timeoutId: NodeJS.Timeout;
     
     const fetchWithRetry = async () => {
       try {
         await fetchUser();
-      } catch (error) {
-        if (retryCount < maxRetries) {
+      } catch (error: any) {
+        console.error('Error in fetchWithRetry:', error.message);
+        
+        // Only retry on connection errors
+        if (retryCount < maxRetries && 
+            (error.message.includes('Unable to connect') || 
+             error.message.includes('timed out') ||
+             error.message.includes('HTML instead of JSON'))) {
           retryCount++;
           console.log(`Retrying user fetch (${retryCount}/${maxRetries})...`);
-          setTimeout(fetchWithRetry, 1000); // Wait 1 second before retry
+          timeoutId = setTimeout(fetchWithRetry, 1000 * Math.pow(2, retryCount)); // Exponential backoff
         } else {
-          console.error("Max retries reached for user fetch");
           setLoading(false);
         }
       }
     };
 
     fetchWithRetry();
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
-    try {
-      const response = await api.post("/login", { email, password });
-      
-      if (response.data.message === 'Login successful') {
-        // Wait a short moment to ensure the cookie is set
-        await new Promise(resolve => setTimeout(resolve, 100));
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    const attemptLogin = async (): Promise<User> => {
+      try {
+        console.log('Attempting login with:', { email });
+        const response = await api.post("/api/auth/login", { email, password });
+        console.log('Login response:', response.data);
         
-        try {
-          // After successful login, fetch the user data
-          const userResponse = await api.get("/me");
-          if (userResponse.data) {
-            setUser(userResponse.data);
-            return userResponse.data;
+        if (response.data.message === 'Login successful') {
+          // Wait a short moment to ensure the cookie is set
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          try {
+            console.log('Fetching user data...');
+            const userResponse = await api.get("/api/users/me");
+            console.log('User data response:', userResponse.data);
+            
+            if (userResponse.data) {
+              setUser(userResponse.data);
+              return userResponse.data;
+            }
+          } catch (userError: any) {
+            console.error("Failed to fetch user after login:", {
+              message: userError.message,
+              code: userError.code,
+              response: userError.response?.data,
+              stack: userError.stack
+            });
+            // Return minimal user data if full fetch fails
+            return { 
+              id: response.data.user.id,
+              email: response.data.user.email,
+              username: response.data.user.username,
+              createdAt: new Date().toISOString()
+            };
           }
-        } catch (userError) {
-          console.error("Failed to fetch user after login:", userError);
-          // Even if user fetch fails, we can still consider login successful
-          // as the cookie is set
-          return { email };
         }
+        throw new Error("Login failed");
+      } catch (error: any) {
+        console.error('Login attempt failed:', {
+          message: error.message,
+          code: error.code,
+          response: error.response?.data,
+          stack: error.stack
+        });
+        
+        // If it's a connection error and we haven't exceeded retries, try again
+        if ((error.message.includes('Unable to connect') || 
+             error.message.includes('timed out')) && 
+            retryCount < maxRetries) {
+          retryCount++;
+          console.log(`Retrying login (${retryCount}/${maxRetries})...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+          return attemptLogin();
+        }
+        throw error;
       }
-      throw new Error("Login failed");
-    } catch (error: any) {
-      console.error("Login error:", error);
-      if (error.response) {
-        throw new Error(error.response.data.error || "Login failed");
-      }
-      throw error;
-    }
+    };
+
+    return attemptLogin();
   };
 
   const register = async (email: string, password: string) => {
     try {
-      const response = await api.post("/register", { email, password });
+      const response = await api.post("/api/auth/register", { email, password });
       if (response.data.user) {
         setUser(response.data.user);
         return response.data.user;
@@ -134,7 +202,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const logout = async () => {
     try {
-      await api.post("/logout");
+      await api.post("/api/auth/logout");
       setUser(null);
       router.push("/login");
     } catch (error) {

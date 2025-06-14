@@ -1,26 +1,29 @@
 import axios from 'axios';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+// Create axios instance with default config
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api',
+  baseURL: API_URL,
   withCredentials: true,
   headers: {
-    'Content-Type': 'application/json',
-  },
+    'Content-Type': 'application/json'
+  }
 });
 
-// Add request interceptor to handle authentication
+// Add request interceptor
 api.interceptors.request.use(
   (config) => {
+    // Log request details
+    console.log('Making request to:', `${API_URL}${config.url}`, {
+      method: config.method,
+      headers: config.headers,
+      withCredentials: config.withCredentials,
+      data: config.data
+    });
+
     // Ensure credentials are included
     config.withCredentials = true;
-    
-    // Log request details
-    console.log('Making request:', {
-      url: config.url,
-      method: config.method,
-      withCredentials: config.withCredentials,
-      headers: config.headers
-    });
     
     return config;
   },
@@ -30,13 +33,16 @@ api.interceptors.request.use(
   }
 );
 
-// Add response interceptor for better error handling
+// Add response interceptor
 api.interceptors.response.use(
   (response) => {
+    // Log successful response
     console.log('Response received:', {
       status: response.status,
-      url: response.config.url
+      url: response.config.url,
+      hasSetCookie: !!response.headers['set-cookie']
     });
+
     return response;
   },
   (error) => {
@@ -51,7 +57,7 @@ api.interceptors.response.use(
         url: error.config?.url,
         message: error.response?.data?.error || 'Authentication failed'
       });
-      // You might want to redirect to login or refresh token here
+      throw new Error('Authentication failed. Please log in again.');
     }
     
     // Log detailed error information
@@ -65,10 +71,5 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-export async function submitCode({ problemId, code, language, isCorrect }: { problemId: string, code: string, language: string, isCorrect: boolean }) {
-  const res = await api.post("/submissions", { problemId, code, language, isCorrect });
-  return res.data;
-}
 
 export default api;
